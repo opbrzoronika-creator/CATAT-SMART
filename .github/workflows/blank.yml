@@ -21,7 +21,7 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP CATAT SMART tidak ditemukan."
+            echo "ERROR: CATAT SMART ZIP tidak ditemukan."
             exit 1
           fi
 
@@ -38,7 +38,6 @@ jobs:
             -d build-project
 
           echo "Project berhasil diekstrak."
-          find build-project -maxdepth 2 -type f | sort
 
       - name: Detect Android project
         shell: bash
@@ -55,9 +54,7 @@ jobs:
 
           PROJECT_ROOT=$(dirname "$SETTINGS")
 
-          echo "Android project:"
-          echo "$PROJECT_ROOT"
-
+          echo "Android project: $PROJECT_ROOT"
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
 
       - name: Setup Java 21
@@ -67,17 +64,43 @@ jobs:
           java-version: "21"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f \
+            -name sdkmanager \
+            | sort \
+            | tail -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager tidak ditemukan."
+            exit 1
+          fi
+
+          echo "sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Check Java and Gradle
+      - name: Check build environment
+        shell: bash
         run: |
           java -version
           gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms"
+          ls "$ANDROID_HOME/build-tools"
 
       - name: Build CATAT SMART APK
         working-directory: ${{ env.PROJECT_ROOT }}
@@ -99,8 +122,7 @@ jobs:
             exit 1
           fi
 
-          echo "APK ditemukan:"
-          echo "$APK"
+          echo "APK ditemukan: $APK"
 
           mkdir -p output
           cp "$APK" output/CATAT-SMART-debug.apk
