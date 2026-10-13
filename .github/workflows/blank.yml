@@ -1,36 +1,86 @@
-# This is a basic workflow to help you get started with Actions
+name: Build CATAT SMART APK
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Find ZIP
+        id: zip
+        shell: bash
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP project tidak ditemukan."
+            exit 1
+          fi
+
+          echo "ZIP ditemukan: $ZIP_FILE"
+          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Extract CATAT SMART project
+        shell: bash
+        run: |
+          rm -rf build-project
+          mkdir -p build-project
+
+          unzip -o "${{ steps.zip.outputs.zip_file }}" \
+            -d build-project
+
+          echo "Isi project:"
+          find build-project -maxdepth 2 -type f | sort | head -100
+
+      - name: Detect project root
+        shell: bash
+        run: |
+          if [ -f "build-project/settings.gradle" ] || \
+             [ -f "build-project/settings.gradle.kts" ]; then
+            echo "PROJECT_ROOT=build-project" >> "$GITHUB_ENV"
+
+          elif [ -f "build-project/CATAT-SMART-V1/settings.gradle" ] || \
+               [ -f "build-project/CATAT-SMART-V1/settings.gradle.kts" ]; then
+            echo "PROJECT_ROOT=build-project/CATAT-SMART-V1" >> "$GITHUB_ENV"
+
+          else
+            SETTINGS=$(find build-project \
+              -maxdepth 3 \
+              -name "settings.gradle" -o -name "settings.gradle.kts" \
+              | head -n 1)
+
+            if [ -z "$SETTINGS" ]; then
+              echo "ERROR: settings.gradle tidak ditemukan."
+              exit 1
+            fi
+
+            ROOT=$(dirname "$SETTINGS")
+            echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+          fi
+
+      - name: Show project root
+        run: |
+          echo "Project root: $PROJECT_ROOT"
+          ls -la "$PROJECT_ROOT"
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Grad
