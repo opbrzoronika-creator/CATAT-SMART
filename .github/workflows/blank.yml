@@ -73,7 +73,7 @@ jobs:
 
 
       # =========================================================
-      # 4. DETECT REACT PROJECT
+      # 4. DETECT REACT + CAPACITOR PROJECT
       # =========================================================
       - name: Detect React + Capacitor project
         id: detect_project
@@ -103,7 +103,7 @@ jobs:
 
 
       # =========================================================
-      # 5. SETUP NODE.JS
+      # 5. SETUP NODE.JS 22
       # =========================================================
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -122,13 +122,7 @@ jobs:
 
 
       # =========================================================
-      # 7. SETUP ANDROID SDK
-      #
-      # TIDAK menggunakan:
-      # android-actions/setup-android@v3
-      #
-      # Karena workflow sebelumnya gagal pada paket
-      # Android "tools".
+      # 7. SETUP ANDROID SDK MANUALLY
       # =========================================================
       - name: Setup Android SDK manually
         shell: bash
@@ -174,8 +168,6 @@ jobs:
           echo "ANDROID SDK SIAP"
           echo "========================================"
 
-          "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
-
 
       # =========================================================
       # 8. INSTALL NPM DEPENDENCIES
@@ -187,7 +179,18 @@ jobs:
 
 
       # =========================================================
-      # 9. BUILD REACT
+      # 9. INSTALL TYPESCRIPT
+      #
+      # DIPERLUKAN KARENA capacitor.config.ts
+      # =========================================================
+      - name: Install TypeScript for Capacitor
+        working-directory: ${{ steps.detect_project.outputs.project_root }}
+        run: |
+          npm install --save-dev typescript
+
+
+      # =========================================================
+      # 10. BUILD REACT APPLICATION
       # =========================================================
       - name: Build React application
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -196,7 +199,16 @@ jobs:
 
 
       # =========================================================
-      # 10. ADD CAPACITOR ANDROID
+      # 11. CHECK TYPESCRIPT
+      # =========================================================
+      - name: Check TypeScript
+        working-directory: ${{ steps.detect_project.outputs.project_root }}
+        run: |
+          npx tsc --version
+
+
+      # =========================================================
+      # 12. ADD CAPACITOR ANDROID
       # =========================================================
       - name: Add Capacitor Android
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -205,7 +217,7 @@ jobs:
 
 
       # =========================================================
-      # 11. SYNC CAPACITOR
+      # 13. SYNC CAPACITOR ANDROID
       # =========================================================
       - name: Sync Capacitor Android
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -214,7 +226,7 @@ jobs:
 
 
       # =========================================================
-      # 12. INSTALL NATIVE FILE PLUGIN
+      # 14. INSTALL CATAT SMART NATIVE FILE PLUGIN
       # =========================================================
       - name: Install CATAT SMART native file plugin
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -228,6 +240,11 @@ jobs:
           mkdir -p \
             android/app/src/main/java/com/nawmanusia/catatsmart
 
+          if [ ! -f "native-plugins/NativeFilePlugin.java" ]; then
+            echo "ERROR: NativeFilePlugin.java tidak ditemukan."
+            exit 1
+          fi
+
           cp \
             native-plugins/NativeFilePlugin.java \
             android/app/src/main/java/com/nawmanusia/catatsmart/NativeFilePlugin.java
@@ -236,7 +253,7 @@ jobs:
 
 
       # =========================================================
-      # 13. REGISTER NATIVE FILE PLUGIN
+      # 15. REGISTER NATIVE FILE PLUGIN
       # =========================================================
       - name: Register CATAT SMART native plugin
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -257,14 +274,12 @@ jobs:
 
           text = path.read_text()
 
-          # Tambahkan import Bundle jika belum ada
           if "import android.os.Bundle;" not in text:
               text = text.replace(
                   "package com.nawmanusia.catatsmart;",
                   "package com.nawmanusia.catatsmart;\n\nimport android.os.Bundle;"
               )
 
-          # Register plugin jika belum ada
           if "registerPlugin(NativeFilePlugin.class)" not in text:
 
               old = "public class MainActivity extends BridgeActivity {"
@@ -291,7 +306,7 @@ jobs:
 
 
       # =========================================================
-      # 14. CHECK ANDROID PROJECT
+      # 16. CHECK GENERATED ANDROID PROJECT
       # =========================================================
       - name: Check generated Android project
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -299,7 +314,7 @@ jobs:
         run: |
 
           echo "========================================"
-          echo "ANDROID PROJECT"
+          echo "ANDROID PROJECT CHECK"
           echo "========================================"
 
           if [ ! -f "android/gradlew" ]; then
@@ -323,7 +338,7 @@ jobs:
 
 
       # =========================================================
-      # 15. COPY PERMANENT SIGNING KEY
+      # 17. INSTALL PERMANENT SIGNING KEY
       # =========================================================
       - name: Install permanent CATAT SMART signing key
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -343,7 +358,7 @@ jobs:
 
 
       # =========================================================
-      # 16. CONFIGURE VERSION + SIGNING
+      # 18. CONFIGURE VERSION + RELEASE SIGNING
       # =========================================================
       - name: Configure version and release signing
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -363,9 +378,7 @@ jobs:
 
           text = path.read_text()
 
-          # -----------------------------------------------------
           # VERSION CODE
-          # -----------------------------------------------------
           if re.search(r"versionCode\s+\d+", text):
               text = re.sub(
                   r"versionCode\s+\d+",
@@ -373,17 +386,8 @@ jobs:
                   text,
                   count=1
               )
-          else:
-              text = text.replace(
-                  "defaultConfig {",
-                  """defaultConfig {
-                  versionCode 3000000""",
-                  1
-              )
 
-          # -----------------------------------------------------
           # VERSION NAME
-          # -----------------------------------------------------
           if re.search(r'versionName\s+[\'"][^\'"]+[\'"]', text):
               text = re.sub(
                   r'versionName\s+[\'"][^\'"]+[\'"]',
@@ -391,17 +395,8 @@ jobs:
                   text,
                   count=1
               )
-          else:
-              text = text.replace(
-                  "versionCode 3000000",
-                  """versionCode 3000000
-                  versionName "3.0.0" """,
-                  1
-              )
 
-          # -----------------------------------------------------
           # SIGNING CONFIG
-          # -----------------------------------------------------
           if "catat-smart-release.keystore" not in text:
 
               signing_block = """
@@ -415,29 +410,26 @@ jobs:
               }
               """
 
-              marker = "android {"
-
-              if marker not in text:
+              if "android {" not in text:
                   raise SystemExit(
                       "ERROR: blok android { tidak ditemukan."
                   )
 
               text = text.replace(
-                  marker,
-                  marker + signing_block,
+                  "android {",
+                  "android {" + signing_block,
                   1
               )
 
-          # -----------------------------------------------------
           # RELEASE BUILD TYPE
-          # -----------------------------------------------------
           if "signingConfig signingConfigs.release" not in text:
 
               if "buildTypes {" in text:
 
-                  # Jika sudah ada release block,
-                  # masukkan signingConfig ke dalamnya.
-                  if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", text):
+                  if re.search(
+                      r"buildTypes\s*\{[\s\S]*?release\s*\{",
+                      text
+                  ):
 
                       text = re.sub(
                           r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
@@ -460,7 +452,6 @@ jobs:
 
               else:
 
-                  # Tidak ada buildTypes sama sekali
                   text += """
 
               android {
@@ -475,15 +466,12 @@ jobs:
 
           path.write_text(text)
 
-          print("========================================")
-          print("ANDROID BUILD CONFIG")
-          print("========================================")
-          print(text)
+          print("Android build configuration selesai.")
           PY
 
 
       # =========================================================
-      # 17. VALIDATE SIGNING FILE
+      # 19. VALIDATE SIGNING KEY
       # =========================================================
       - name: Validate signing key
         working-directory: ${{ steps.detect_project.outputs.project_root }}/android
@@ -505,7 +493,7 @@ jobs:
 
 
       # =========================================================
-      # 18. BUILD SIGNED RELEASE APK
+      # 20. BUILD SIGNED RELEASE APK
       # =========================================================
       - name: Build signed release APK
         working-directory: ${{ steps.detect_project.outputs.project_root }}/android
@@ -521,7 +509,7 @@ jobs:
 
 
       # =========================================================
-      # 19. FIND APK
+      # 21. FIND GENERATED APK
       # =========================================================
       - name: Find generated APK
         working-directory: ${{ steps.detect_project.outputs.project_root }}
@@ -560,7 +548,7 @@ jobs:
 
 
       # =========================================================
-      # 20. CHECK APK
+      # 22. VERIFY APK
       # =========================================================
       - name: Verify APK
         shell: bash
@@ -572,7 +560,7 @@ jobs:
           fi
 
           echo "========================================"
-          echo "APK BERHASIL"
+          echo "APK BERHASIL DIBUAT"
           echo "========================================"
 
           ls -lh \
@@ -580,7 +568,7 @@ jobs:
 
 
       # =========================================================
-      # 21. UPLOAD APK ARTIFACT
+      # 23. UPLOAD APK ARTIFACT
       # =========================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -591,7 +579,7 @@ jobs:
 
 
       # =========================================================
-      # 22. CREATE GITHUB RELEASE
+      # 24. CREATE GITHUB RELEASE
       # =========================================================
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -601,7 +589,7 @@ jobs:
           body: |
             CATAT SMART V3.0.0
 
-            Native-style React + Capacitor Android APK.
+            React + Capacitor Android APK.
 
             Features:
             - CATAT SMART UI
