@@ -18,9 +18,17 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+
+      # ==========================================================
+      # FIND ZIP
+      # ==========================================================
       - name: Find CATAT SMART ZIP
         id: find_zip
         run: |
@@ -36,6 +44,10 @@ jobs:
           echo "ZIP ditemukan: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
+
+      # ==========================================================
+      # EXTRACT
+      # ==========================================================
       - name: Extract CATAT SMART
         run: |
           rm -rf build-project
@@ -45,6 +57,10 @@ jobs:
             "${{ steps.find_zip.outputs.zip_file }}" \
             -d build-project
 
+
+      # ==========================================================
+      # DETECT PROJECT ROOT
+      # ==========================================================
       - name: Detect project root
         id: detect_project
         run: |
@@ -66,6 +82,10 @@ jobs:
 
           echo "Project root: $PROJECT_ROOT"
 
+
+      # ==========================================================
+      # AUTOMATIC VERSION
+      # ==========================================================
       - name: Determine automatic version
         id: version
         env:
@@ -116,22 +136,38 @@ jobs:
           echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
+
+      # ==========================================================
+      # NODE
+      # ==========================================================
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+
+      # ==========================================================
+      # JAVA
+      # ==========================================================
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
+
+      # ==========================================================
+      # GRADLE
+      # ==========================================================
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
+
+      # ==========================================================
+      # ANDROID SDK
+      # ==========================================================
       - name: Setup Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
@@ -158,11 +194,19 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+
+      # ==========================================================
+      # NPM
+      # ==========================================================
       - name: Install npm dependencies
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm install --no-audit --no-fund
 
+
+      # ==========================================================
+      # CAPACITOR CONFIG
+      # ==========================================================
       - name: Create Capacitor JSON configuration
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -182,23 +226,36 @@ jobs:
 
           cat capacitor.config.json
 
+
+      # ==========================================================
+      # REACT BUILD
+      # ==========================================================
       - name: Build React application
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm run build
 
+
+      # ==========================================================
+      # ADD ANDROID
+      # ==========================================================
       - name: Add Capacitor Android
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap add android
 
+
+      # ==========================================================
+      # SYNC CAPACITOR
+      # ==========================================================
       - name: Sync Capacitor Android
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap sync android
 
+
       # ==========================================================
-      # CATAT SMART ICON
+      # APPLY ANDROID ICON
       # ==========================================================
       - name: Apply CATAT SMART Android icon
         working-directory: ${{ env.PROJECT_ROOT }}
@@ -209,14 +266,17 @@ jobs:
 
           if [ ! -f "$ICON_SOURCE" ]; then
             echo "ERROR: $ICON_SOURCE tidak ditemukan."
-            echo "Masukkan logo CATAT SMART baru sebagai:"
-            echo "public/icon-512.png"
             exit 1
           fi
 
           echo "Logo sumber ditemukan:"
           file "$ICON_SOURCE"
           ls -lh "$ICON_SOURCE"
+
+          echo "Install ImageMagick..."
+
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
 
           RES_DIR="android/app/src/main/res"
 
@@ -225,120 +285,90 @@ jobs:
             "$RES_DIR/mipmap-hdpi" \
             "$RES_DIR/mipmap-xhdpi" \
             "$RES_DIR/mipmap-xxhdpi" \
-            "$RES_DIR/mipmap-xxxhdpi"
+            "$RES_DIR/mipmap-xxxhdpi" \
+            "$RES_DIR/mipmap-anydpi-v26" \
+            "$RES_DIR/drawable" \
+            "$RES_DIR/values"
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-          import sys
+          echo "Membuat icon Android..."
 
-          source = Path("public/icon-512.png")
-          res = Path("android/app/src/main/res")
+          convert "$ICON_SOURCE" \
+            -resize 48x48 \
+            "$RES_DIR/mipmap-mdpi/ic_launcher.png"
 
-          sizes = {
-              "mipmap-mdpi": 48,
-              "mipmap-hdpi": 72,
-              "mipmap-xhdpi": 96,
-              "mipmap-xxhdpi": 144,
-              "mipmap-xxxhdpi": 192,
-          }
+          convert "$ICON_SOURCE" \
+            -resize 72x72 \
+            "$RES_DIR/mipmap-hdpi/ic_launcher.png"
 
-          try:
-              from PIL import Image
-          except ImportError:
-              subprocess.check_call([
-                  sys.executable,
-                  "-m",
-                  "pip",
-                  "install",
-                  "Pillow",
-                  "--quiet"
-              ])
-              from PIL import Image
+          convert "$ICON_SOURCE" \
+            -resize 96x96 \
+            "$RES_DIR/mipmap-xhdpi/ic_launcher.png"
 
-          image = Image.open(source).convert("RGBA")
+          convert "$ICON_SOURCE" \
+            -resize 144x144 \
+            "$RES_DIR/mipmap-xxhdpi/ic_launcher.png"
 
-          print("Original icon:", image.size)
+          convert "$ICON_SOURCE" \
+            -resize 192x192 \
+            "$RES_DIR/mipmap-xxxhdpi/ic_launcher.png"
 
-          for folder, size in sizes.items():
-              out_dir = res / folder
-              out_dir.mkdir(parents=True, exist_ok=True)
+          cp "$RES_DIR/mipmap-mdpi/ic_launcher.png" \
+             "$RES_DIR/mipmap-mdpi/ic_launcher_round.png"
 
-              resized = image.resize(
-                  (size, size),
-                  Image.Resampling.LANCZOS
-              )
+          cp "$RES_DIR/mipmap-hdpi/ic_launcher.png" \
+             "$RES_DIR/mipmap-hdpi/ic_launcher_round.png"
 
-              resized.save(
-                  out_dir / "ic_launcher.png",
-                  "PNG"
-              )
+          cp "$RES_DIR/mipmap-xhdpi/ic_launcher.png" \
+             "$RES_DIR/mipmap-xhdpi/ic_launcher_round.png"
 
-              resized.save(
-                  out_dir / "ic_launcher_round.png",
-                  "PNG"
-              )
+          cp "$RES_DIR/mipmap-xxhdpi/ic_launcher.png" \
+             "$RES_DIR/mipmap-xxhdpi/ic_launcher_round.png"
 
-              print(folder, "->", size, "x", size)
+          cp "$RES_DIR/mipmap-xxxhdpi/ic_launcher.png" \
+             "$RES_DIR/mipmap-xxxhdpi/ic_launcher_round.png"
 
-          # Adaptive icon XML.
-          anydpi = res / "mipmap-anydpi-v26"
-          anydpi.mkdir(parents=True, exist_ok=True)
+          cp "$ICON_SOURCE" \
+             "$RES_DIR/drawable/catat_smart_icon_foreground.png"
 
-          (anydpi / "ic_launcher.xml").write_text(
-              '''<?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/catat_smart_icon_background"/>
-              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
-          </adaptive-icon>
-          '''
-          )
-
-          (anydpi / "ic_launcher_round.xml").write_text(
-              '''<?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/catat_smart_icon_background"/>
-              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
-          </adaptive-icon>
-          '''
-          )
-
-          colors = res / "values"
-          colors.mkdir(parents=True, exist_ok=True)
-
-          (colors / "catat_smart_icon_colors.xml").write_text(
-              '''<?xml version="1.0" encoding="utf-8"?>
+          cat > "$RES_DIR/values/catat_smart_icon_colors.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <color name="catat_smart_icon_background">#1565C0</color>
           </resources>
-          '''
-          )
+          XML
 
-          drawable = res / "drawable"
-          drawable.mkdir(parents=True, exist_ok=True)
+          cat > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/catat_smart_icon_background"/>
+              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
+          </adaptive-icon>
+          XML
 
-          # Use the full logo as adaptive foreground.
-          # The bitmap is copied so Android always receives
-          # the same CATAT SMART visual identity.
-          import shutil
+          cat > "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/catat_smart_icon_background"/>
+              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
+          </adaptive-icon>
+          XML
 
-          shutil.copyfile(
-              source,
-              drawable / "catat_smart_icon_foreground.png"
-          )
+          echo "===== ICON HASIL ====="
 
-          print("CATAT SMART Android icon applied successfully.")
-          PY
-
-          echo "===== ICON FILES ====="
-          find android/app/src/main/res \
+          find "$RES_DIR" \
             \( -name "ic_launcher.png" \
-               -o -name "ic_launcher_round.png" \
-               -o -name "ic_launcher.xml" \
-               -o -name "ic_launcher_round.xml" \
-               -o -name "catat_smart_icon_foreground.png" \) \
+            -o -name "ic_launcher_round.png" \
+            -o -name "ic_launcher.xml" \
+            -o -name "ic_launcher_round.xml" \
+            -o -name "catat_smart_icon_foreground.png" \) \
             -print
 
+          echo "CATAT SMART Android icon berhasil diterapkan."
+
+
+      # ==========================================================
+      # MANIFEST ICON
+      # ==========================================================
       - name: Fix Android launcher manifest icon
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -354,10 +384,10 @@ jobs:
 
           s = p.read_text()
 
-          s = s.replace(
-              'android:icon="@mipmap/ic_launcher"',
-              'android:icon="@mipmap/ic_launcher"'
-          )
+          if 'android:icon=' not in s:
+              raise SystemExit(
+                  "ERROR: android:icon tidak ditemukan di manifest."
+              )
 
           if 'android:roundIcon=' not in s:
               s = s.replace(
@@ -375,8 +405,9 @@ jobs:
           echo "===== AndroidManifest.xml ====="
           cat android/app/src/main/AndroidManifest.xml
 
+
       # ==========================================================
-      # MAIN ACTIVITY + NATIVE FILE PLUGIN
+      # MAIN ACTIVITY + NATIVE FILE
       # ==========================================================
       - name: Fix MainActivity and install NativeFile plugin
         working-directory: ${{ env.PROJECT_ROOT }}
@@ -449,6 +480,7 @@ jobs:
           print(s)
           PY
 
+
       # ==========================================================
       # KOTLIN COMPATIBILITY
       # ==========================================================
@@ -484,6 +516,7 @@ jobs:
 
           print("Kotlin dependency resolution fix applied.")
           PY
+
 
       # ==========================================================
       # VERSION + SIGNING
@@ -578,6 +611,10 @@ jobs:
           echo "===== app/build.gradle ====="
           cat android/app/build.gradle
 
+
+      # ==========================================================
+      # VERIFY APPLICATION ID
+      # ==========================================================
       - name: Verify application ID
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -593,6 +630,10 @@ jobs:
 
           echo "applicationId OK."
 
+
+      # ==========================================================
+      # VERIFY SIGNING
+      # ==========================================================
       - name: Verify signing key
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -601,61 +642,8 @@ jobs:
             -storepass 'CatatSmartV3!2026' \
             -alias catat-smart
 
-      # ==========================================================
-      # BUILD
-      # ==========================================================
-      - name: Build signed release APK
-        working-directory: ${{ env.PROJECT_ROOT }}/android
-        run: |
-          gradle assembleRelease \
-            --no-daemon \
-            --refresh-dependencies \
-            --stacktrace
-
-      - name: Find release APK
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: |
-          APK=$(find android/app/build/outputs/apk/release \
-            -type f \
-            -name "*.apk" \
-            | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK release tidak ditemukan."
-            exit 1
-          fi
-
-          echo "APK ditemukan:"
-          ls -lh "$APK"
-
-          cp "$APK" \
-            "${GITHUB_WORKSPACE}/CATAT-SMART-${VERSION}.apk"
-
-      - name: Verify APK
-        run: |
-          APK="CATAT-SMART-${VERSION}.apk"
-
-          if [ ! -f "$APK" ]; then
-            echo "ERROR: APK tidak berhasil disiapkan."
-            exit 1
-          fi
-
-          ls -lh "$APK"
 
       # ==========================================================
-      # ARTIFACT + RELEASE
+      # BUILD RELEASE
       # ==========================================================
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CATAT-SMART-${{ env.VERSION }}
-          path: CATAT-SMART-${{ env.VERSION }}.apk
-          if-no-files-found: error
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: CATAT SMART ${{ env.VERSION }}
-          generate_release_notes: true
-          files: CATAT-SMART-${{ env.VERSION }}.apk
+      - 
