@@ -1,11 +1,11 @@
-name: Build CATAT SMART V3 APK
+name: Build CATAT SMART v3.0.1 APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - "CATAT-SMART-V3-NAWSTYLE.zip"
-      - ".github/workflows/build-catat-smart.yml"
+      - "*.zip"
+      - ".github/workflows/build-catatsmart.yml"
 
 permissions:
   contents: write
@@ -18,73 +18,32 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-
-      # =========================================================
-      # 1. CHECKOUT REPOSITORY
-      # =========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # =========================================================
-      # 2. FIND CATAT SMART ZIP
-      # =========================================================
       - name: Find CATAT SMART ZIP
         id: find_zip
-        shell: bash
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f \
-            -iname "CATAT-SMART-V3-NAWSTYLE.zip" \
-            | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "CATAT-SMART-V3-NAWSTYLE.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: CATAT-SMART-V3-NAWSTYLE.zip tidak ditemukan."
-            echo "Pastikan ZIP berada di ROOT repository."
+            echo "ERROR: CATAT-SMART-V3-NAWSTYLE.zip tidak ditemukan di root repository."
             exit 1
           fi
 
-          echo "ZIP ditemukan:"
-          echo "$ZIP_FILE"
-
+          echo "ZIP: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-
-      # =========================================================
-      # 3. EXTRACT ZIP
-      # =========================================================
-      - name: Extract CATAT SMART ZIP
+      - name: Extract CATAT SMART source
         run: |
           rm -rf build-project
-          mkdir -p build-project
+          mkdir build-project
+          unzip -q -o "${{ steps.find_zip.outputs.zip_file }}" -d build-project
 
-          unzip -q -o \
-            "${{ steps.find_zip.outputs.zip_file }}" \
-            -d build-project
-
-          echo ""
-          echo "========================================"
-          echo "HASIL EXTRACT"
-          echo "========================================"
-
-          find build-project \
-            -maxdepth 4 \
-            -type f \
-            | sort
-
-
-      # =========================================================
-      # 4. DETECT REACT + CAPACITOR PROJECT
-      # =========================================================
-      - name: Detect React + Capacitor project
+      - name: Detect React project
         id: detect_project
-        shell: bash
         run: |
-          PACKAGE=$(find build-project \
-            -maxdepth 6 \
-            -type f \
-            -name "package.json" \
-            -not -path "*/node_modules/*" \
-            | head -n 1)
+          PACKAGE=$(find build-project -maxdepth 5 -type f -name "package.json" | head -n 1)
 
           if [ -z "$PACKAGE" ]; then
             echo "ERROR: package.json tidak ditemukan."
@@ -92,115 +51,52 @@ jobs:
           fi
 
           PROJECT_ROOT=$(dirname "$PACKAGE")
-
-          echo ""
-          echo "========================================"
-          echo "PROJECT ROOT"
-          echo "========================================"
-          echo "$PROJECT_ROOT"
-
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
+          echo "Project: $PROJECT_ROOT"
 
-
-      # =========================================================
-      # 5. SETUP NODE.JS 22
-      # =========================================================
-      - name: Setup Node.js 22
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-
-      # =========================================================
-      # 6. SETUP JAVA 21
-      # =========================================================
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-
-      # =========================================================
-      # 7. SETUP ANDROID SDK MANUALLY
-      # =========================================================
       - name: Setup Android SDK manually
-        shell: bash
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-          SDKMANAGER=$(find "$ANDROID_SDK_ROOT/cmdline-tools" \
-            -type f \
-            -name "sdkmanager" \
-            2>/dev/null \
-            | sort \
-            | tail -n 1)
+          SDKMANAGER=$(find /usr/local/lib/android/sdk/cmdline-tools \
+            -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERROR: sdkmanager tidak ditemukan."
             exit 1
           fi
 
-          echo ""
-          echo "SDKMANAGER:"
-          echo "$SDKMANAGER"
+          echo "SDKMANAGER=$SDKMANAGER"
 
-          echo ""
-          echo "========================================"
-          echo "ACCEPT ANDROID LICENSES"
-          echo "========================================"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-          echo ""
-          echo "========================================"
-          echo "INSTALL ANDROID SDK"
-          echo "========================================"
-
-          "$SDKMANAGER" \
+          yes | "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo ""
-          echo "========================================"
-          echo "ANDROID SDK SIAP"
-          echo "========================================"
-
-
-      # =========================================================
-      # 8. INSTALL NPM DEPENDENCIES
-      # =========================================================
-      - name: Install npm dependencies
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
+      - name: Install dependencies
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          npm install
+          npm install --no-audit --no-fund
 
-
-      # =========================================================
-      # 9. REMOVE TYPESCRIPT CAPACITOR CONFIG
-      #
-      # Kita tidak menggunakan capacitor.config.ts lagi.
-      # Ini menghindari error:
-      #
-      # Parsing capacitor.config.ts failed
-      # Cannot read properties of undefined
-      # (reading 'CommonJS')
-      # =========================================================
-      - name: Replace Capacitor TypeScript config with JSON
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
+      - name: Force Capacitor JSON configuration
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-
-          echo "========================================"
-          echo "CONFIGURE CAPACITOR"
-          echo "========================================"
-
-          if [ -f "capacitor.config.ts" ]; then
-            rm -f capacitor.config.ts
-            echo "capacitor.config.ts dihapus."
-          fi
+          rm -f capacitor.config.ts
 
           cat > capacitor.config.json <<'JSON'
           {
@@ -214,232 +110,83 @@ jobs:
           }
           JSON
 
-          echo ""
-          echo "capacitor.config.json:"
-          cat capacitor.config.json
-
-
-      # =========================================================
-      # 10. BUILD REACT APPLICATION
-      # =========================================================
       - name: Build React application
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm run build
 
-
-      # =========================================================
-      # 11. CHECK CAPACITOR CONFIG
-      # =========================================================
-      - name: Check Capacitor configuration
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        run: |
-
-          if [ ! -f "capacitor.config.json" ]; then
-            echo "ERROR: capacitor.config.json tidak ditemukan."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "CAPACITOR CONFIG OK"
-          echo "========================================"
-
-          cat capacitor.config.json
-
-
-      # =========================================================
-      # 12. ADD CAPACITOR ANDROID
-      # =========================================================
       - name: Add Capacitor Android
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap add android
 
-
-      # =========================================================
-      # 13. SYNC CAPACITOR ANDROID
-      # =========================================================
       - name: Sync Capacitor Android
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap sync android
 
-
-      # =========================================================
-      # 14. INSTALL CATAT SMART NATIVE FILE PLUGIN
-      # =========================================================
-      - name: Install CATAT SMART native file plugin
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
+      - name: Install NativeFile plugin
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
+          mkdir -p android/app/src/main/java/com/nawmanusia/catatsmart
 
-          echo "========================================"
-          echo "INSTALL NATIVE FILE PLUGIN"
-          echo "========================================"
-
-          mkdir -p \
-            android/app/src/main/java/com/nawmanusia/catatsmart
-
-          if [ ! -f "native-plugins/NativeFilePlugin.java" ]; then
-            echo "ERROR: NativeFilePlugin.java tidak ditemukan."
-            exit 1
-          fi
-
-          cp \
-            native-plugins/NativeFilePlugin.java \
+          cp native-plugins/NativeFilePlugin.java \
             android/app/src/main/java/com/nawmanusia/catatsmart/NativeFilePlugin.java
-
-          echo "NativeFilePlugin.java copied."
-
-
-      # =========================================================
-      # 15. REGISTER NATIVE FILE PLUGIN
-      # =========================================================
-      - name: Register CATAT SMART native plugin
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
-        run: |
 
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path(
+          p = Path(
               "android/app/src/main/java/com/nawmanusia/catatsmart/MainActivity.java"
           )
 
-          if not path.exists():
-              raise SystemExit(
-                  "ERROR: MainActivity.java tidak ditemukan."
-              )
+          s = p.read_text()
 
-          text = path.read_text()
-
-          if "import android.os.Bundle;" not in text:
-              text = text.replace(
-                  "package com.nawmanusia.catatsmart;",
-                  "package com.nawmanusia.catatsmart;\n\nimport android.os.Bundle;"
-              )
-
-          if "registerPlugin(NativeFilePlugin.class)" not in text:
-
-              old = "public class MainActivity extends BridgeActivity {"
-
-              new = """public class MainActivity extends BridgeActivity {
-
+          if "registerPlugin(NativeFilePlugin.class)" not in s:
+              s = s.replace(
+                  "public class MainActivity extends BridgeActivity {",
+                  """public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   registerPlugin(NativeFilePlugin.class);
                   super.onCreate(savedInstanceState);
               }"""
+              )
 
-              if old not in text:
-                  raise SystemExit(
-                      "ERROR: Deklarasi MainActivity tidak ditemukan."
-                  )
-
-              text = text.replace(old, new, 1)
-
-          path.write_text(text)
-
-          print("MainActivity.java berhasil dikonfigurasi.")
+          p.write_text(s)
           PY
 
-
-      # =========================================================
-      # 16. CHECK GENERATED ANDROID PROJECT
-      # =========================================================
-      - name: Check generated Android project
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
+      - name: Configure permanent signing and version
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-
-          echo "========================================"
-          echo "ANDROID PROJECT CHECK"
-          echo "========================================"
-
-          if [ ! -f "android/gradlew" ]; then
-            echo "ERROR: android/gradlew tidak ditemukan."
-            exit 1
-          fi
-
-          if [ ! -f "android/app/build.gradle" ]; then
-            echo "ERROR: android/app/build.gradle tidak ditemukan."
-            exit 1
-          fi
-
-          if [ ! -f "android/settings.gradle" ]; then
-            echo "ERROR: android/settings.gradle tidak ditemukan."
-            exit 1
-          fi
-
-          echo "Gradle wrapper ditemukan."
-          echo "Android build.gradle ditemukan."
-          echo "Android settings.gradle ditemukan."
-
-
-      # =========================================================
-      # 17. INSTALL PERMANENT SIGNING KEY
-      # =========================================================
-      - name: Install permanent CATAT SMART signing key
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
-        run: |
-
-          if [ ! -f "catat-smart-release.keystore" ]; then
-            echo "ERROR: catat-smart-release.keystore tidak ditemukan."
-            exit 1
-          fi
-
-          cp \
-            catat-smart-release.keystore \
+          cp catat-smart-release.keystore \
             android/catat-smart-release.keystore
-
-          echo "Permanent signing key installed."
-
-
-      # =========================================================
-      # 18. CONFIGURE VERSION + RELEASE SIGNING
-      # =========================================================
-      - name: Configure version and release signing
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
-        run: |
 
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          path = Path("android/app/build.gradle")
+          p = Path("android/app/build.gradle")
+          s = p.read_text()
 
-          if not path.exists():
-              raise SystemExit(
-                  "ERROR: android/app/build.gradle tidak ditemukan."
-              )
+          s = re.sub(
+              r'versionCode\s+\d+',
+              'versionCode 3000001',
+              s,
+              count=1
+          )
 
-          text = path.read_text()
+          s = re.sub(
+              r'versionName\s+["\'][^"\']+["\']',
+              'versionName "3.0.1"',
+              s,
+              count=1
+          )
 
-          # VERSION CODE
-          if re.search(r"versionCode\s+\d+", text):
-              text = re.sub(
-                  r"versionCode\s+\d+",
-                  "versionCode 3000000",
-                  text,
-                  count=1
-              )
-
-          # VERSION NAME
-          if re.search(r'versionName\s+[\'"][^\'"]+[\'"]', text):
-              text = re.sub(
-                  r'versionName\s+[\'"][^\'"]+[\'"]',
-                  'versionName "3.0.0"',
-                  text,
-                  count=1
-              )
-
-          # SIGNING CONFIG
-          if "catat-smart-release.keystore" not in text:
-
-              signing_block = """
+          if "signingConfigs {" not in s:
+              s = s.replace(
+                  "android {",
+                  """android {
               signingConfigs {
                   release {
                       storeFile file("../catat-smart-release.keystore")
@@ -447,196 +194,59 @@ jobs:
                       keyAlias "catat-smart"
                       keyPassword "CatatSmartV3!2026"
                   }
-              }
-              """
-
-              if "android {" not in text:
-                  raise SystemExit(
-                      "ERROR: blok android { tidak ditemukan."
-                  )
-
-              text = text.replace(
-                  "android {",
-                  "android {" + signing_block,
+              }""",
                   1
               )
 
-          # RELEASE BUILD TYPE
-          if "signingConfig signingConfigs.release" not in text:
+          if "signingConfig signingConfigs.release" not in s:
+              s = s.replace(
+                  "buildTypes {",
+                  """buildTypes {
+              release {
+                  signingConfig signingConfigs.release
+                  minifyEnabled false
+              }""",
+                  1
+              )
 
-              if "buildTypes {" in text:
-
-                  if re.search(
-                      r"buildTypes\s*\{[\s\S]*?release\s*\{",
-                      text
-                  ):
-
-                      text = re.sub(
-                          r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
-                          r"\1\n            signingConfig signingConfigs.release",
-                          text,
-                          count=1
-                      )
-
-                  else:
-
-                      text = text.replace(
-                          "buildTypes {",
-                          """buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                      minifyEnabled false
-                  }""",
-                          1
-                      )
-
-              else:
-
-                  text += """
-
-              android {
-                  buildTypes {
-                      release {
-                          signingConfig signingConfigs.release
-                          minifyEnabled false
-                      }
-                  }
-              }
-              """
-
-          path.write_text(text)
-
-          print("Android build configuration selesai.")
+          p.write_text(s)
           PY
 
-
-      # =========================================================
-      # 19. VALIDATE SIGNING KEY
-      # =========================================================
-      - name: Validate signing key
-        working-directory: ${{ steps.detect_project.outputs.project_root }}/android
-        shell: bash
-        run: |
-
-          if [ ! -f "catat-smart-release.keystore" ]; then
-            echo "ERROR: Signing key tidak ditemukan."
-            exit 1
-          fi
-
-          keytool \
-            -list \
-            -keystore catat-smart-release.keystore \
-            -storepass "CatatSmartV3!2026" \
-            -alias "catat-smart"
-
-          echo "Signing key valid."
-
-
-      # =========================================================
-      # 20. BUILD SIGNED RELEASE APK
-      # =========================================================
       - name: Build signed release APK
-        working-directory: ${{ steps.detect_project.outputs.project_root }}/android
-        shell: bash
+        working-directory: ${{ env.PROJECT_ROOT }}/android
         run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
-          chmod +x gradlew
-
-          ./gradlew \
-            assembleRelease \
-            --no-daemon \
-            --stacktrace
-
-
-      # =========================================================
-      # 21. FIND GENERATED APK
-      # =========================================================
-      - name: Find generated APK
-        working-directory: ${{ steps.detect_project.outputs.project_root }}
-        shell: bash
+      - name: Prepare APK
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-
-          echo "========================================"
-          echo "SEARCH APK"
-          echo "========================================"
-
-          find android/app/build/outputs \
-            -type f \
-            -name "*.apk" \
-            -print
-
-          APK=$(find \
-            android/app/build/outputs/apk/release \
+          APK=$(find android/app/build/outputs/apk/release \
             -type f \
             -name "*.apk" \
             | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
+            echo "ERROR: APK release tidak ditemukan."
             exit 1
           fi
 
-          echo "APK ditemukan:"
-          echo "$APK"
-
-          cp \
-            "$APK" \
-            "$GITHUB_WORKSPACE/CATAT-SMART-V3.apk"
+          cp "$APK" \
+            "${GITHUB_WORKSPACE}/CATAT-SMART-v3.0.1.apk"
 
           ls -lh \
-            "$GITHUB_WORKSPACE/CATAT-SMART-V3.apk"
+            "${GITHUB_WORKSPACE}/CATAT-SMART-v3.0.1.apk"
 
-
-      # =========================================================
-      # 22. VERIFY APK
-      # =========================================================
-      - name: Verify APK
-        shell: bash
-        run: |
-
-          if [ ! -f "$GITHUB_WORKSPACE/CATAT-SMART-V3.apk" ]; then
-            echo "ERROR: CATAT-SMART-V3.apk tidak ada."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "APK BERHASIL DIBUAT"
-          echo "========================================"
-
-          ls -lh \
-            "$GITHUB_WORKSPACE/CATAT-SMART-V3.apk"
-
-
-      # =========================================================
-      # 23. UPLOAD APK ARTIFACT
-      # =========================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CATAT-SMART-V3-APK
-          path: CATAT-SMART-V3.apk
+          name: CATAT-SMART-v3.0.1
+          path: CATAT-SMART-v3.0.1.apk
           if-no-files-found: error
 
-
-      # =========================================================
-      # 24. CREATE GITHUB RELEASE
-      # =========================================================
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v3.0.0
-          name: CATAT SMART v3.0.0
-          body: |
-            CATAT SMART V3.0.0
-
-            React + Capacitor Android APK.
-
-            Features:
-            - CATAT SMART UI
-            - Smooth animations
-            - Local data storage
-            - Excel export
-            - Backup and restore
-            - Permanent signing key
+          tag_name: v3.0.1
+          name: CATAT SMART v3.0.1
           generate_release_notes: true
-          files: CATAT-SMART-V3.apk
+          files: CATAT-SMART-v3.0.1.apk
