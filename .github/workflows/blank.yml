@@ -734,7 +734,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: CATAT SMART ${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
+          name: CATAT SMART v${{ env.VERSION }}
           generate_release_notes: true
           files: CATAT-SMART-${{ env.VERSION }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
