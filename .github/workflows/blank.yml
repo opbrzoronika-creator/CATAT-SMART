@@ -5,7 +5,7 @@ on:
   push:
     paths:
       - "*.zip"
-      - ".github/workflows/build-catatsmart.yml"
+      - ".github/workflows/blank.yml"
 
 permissions:
   contents: write
@@ -18,57 +18,34 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-
-      # ==========================================================
-      # CHECKOUT
-      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # ==========================================================
-      # FIND ZIP
-      # ==========================================================
       - name: Find CATAT SMART ZIP
         id: find_zip
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f \
-            -iname "CATAT-SMART-V3-NAWSTYLE.zip" \
-            | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "CATAT-SMART-V3-NAWSTYLE.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: CATAT-SMART-V3-NAWSTYLE.zip tidak ditemukan."
             exit 1
           fi
 
-          echo "ZIP ditemukan: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+          echo "ZIP ditemukan: $ZIP_FILE"
 
-
-      # ==========================================================
-      # EXTRACT
-      # ==========================================================
-      - name: Extract CATAT SMART
+      - name: Extract project
         run: |
           rm -rf build-project
-          mkdir -p build-project
+          mkdir build-project
 
           unzip -q -o \
             "${{ steps.find_zip.outputs.zip_file }}" \
             -d build-project
 
-
-      # ==========================================================
-      # DETECT PROJECT ROOT
-      # ==========================================================
       - name: Detect project root
-        id: detect_project
         run: |
-          PACKAGE=$(find build-project \
-            -maxdepth 5 \
-            -type f \
-            -name "package.json" \
-            | head -n 1)
+          PACKAGE=$(find build-project -maxdepth 5 -type f -name "package.json" | head -n 1)
 
           if [ -z "$PACKAGE" ]; then
             echo "ERROR: package.json tidak ditemukan."
@@ -78,31 +55,18 @@ jobs:
           PROJECT_ROOT=$(dirname "$PACKAGE")
 
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-          echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
 
           echo "Project root: $PROJECT_ROOT"
 
-
-      # ==========================================================
-      # AUTOMATIC VERSION
-      # ==========================================================
-      - name: Determine automatic version
-        id: version
+      - name: Determine version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Mencari Release CATAT SMART terakhir..."
-
           LAST_TAG=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 100 \
             --json tagName,isDraft,isPrerelease \
-            --jq '
-              .[]
-              | select(.isDraft == false)
-              | select(.isPrerelease == false)
-              | .tagName
-            ' \
+            --jq '.[] | select(.isDraft == false) | select(.isPrerelease == false) | .tagName' \
             | grep -E '^v3\.[0-9]+\.[0-9]+$' \
             | sort -V \
             | tail -n 1)
@@ -110,8 +74,6 @@ jobs:
           if [ -z "$LAST_TAG" ]; then
             LAST_TAG="v3.0.0"
           fi
-
-          echo "Release terakhir: $LAST_TAG"
 
           VERSION="${LAST_TAG#v}"
 
@@ -121,58 +83,34 @@ jobs:
 
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           NEW_TAG="v${NEW_VERSION}"
-
           VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
-
-          echo "Versi baru: $NEW_VERSION"
-          echo "Tag baru: $NEW_TAG"
-          echo "Version code: $VERSION_CODE"
 
           echo "VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
           echo "TAG=$NEW_TAG" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Versi baru: $NEW_VERSION"
+          echo "Tag: $NEW_TAG"
+          echo "Version code: $VERSION_CODE"
 
-
-      # ==========================================================
-      # NODE
-      # ==========================================================
-      - name: Setup Node 22
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "22"
 
-
-      # ==========================================================
-      # JAVA
-      # ==========================================================
-      - name: Setup Java 21
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-
-      # ==========================================================
-      # GRADLE
-      # ==========================================================
-      - name: Setup Gradle 8.9
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-
-      # ==========================================================
-      # ANDROID SDK
-      # ==========================================================
       - name: Setup Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
           SDKMANAGER=$(find /usr/local/lib/android/sdk/cmdline-tools \
             -type f \
             -name sdkmanager \
@@ -185,8 +123,6 @@ jobs:
             exit 1
           fi
 
-          echo "sdkmanager: $SDKMANAGER"
-
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
           "$SDKMANAGER" \
@@ -194,20 +130,12 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-
-      # ==========================================================
-      # NPM
-      # ==========================================================
-      - name: Install npm dependencies
+      - name: Install dependencies
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm install --no-audit --no-fund
 
-
-      # ==========================================================
-      # CAPACITOR CONFIG
-      # ==========================================================
-      - name: Create Capacitor JSON configuration
+      - name: Create Capacitor config
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           rm -f capacitor.config.ts
@@ -224,196 +152,82 @@ jobs:
           }
           JSON
 
-          cat capacitor.config.json
-
-
-      # ==========================================================
-      # REACT BUILD
-      # ==========================================================
-      - name: Build React application
+      - name: Build web application
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm run build
 
-
-      # ==========================================================
-      # ADD ANDROID
-      # ==========================================================
-      - name: Add Capacitor Android
+      - name: Add Android
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap add android
 
-
-      # ==========================================================
-      # SYNC CAPACITOR
-      # ==========================================================
-      - name: Sync Capacitor Android
+      - name: Sync Android
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npx cap sync android
 
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
 
-      # ==========================================================
-      # APPLY ANDROID ICON
-      # ==========================================================
-      - name: Apply CATAT SMART Android icon
+      - name: Apply CATAT SMART icon
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           set -e
 
-          ICON_SOURCE="public/icon-512.png"
+          ICON="public/icon-512.png"
+          RES="android/app/src/main/res"
 
-          if [ ! -f "$ICON_SOURCE" ]; then
-            echo "ERROR: $ICON_SOURCE tidak ditemukan."
+          if [ ! -f "$ICON" ]; then
+            echo "ERROR: public/icon-512.png tidak ditemukan."
             exit 1
           fi
 
-          echo "Logo sumber ditemukan:"
-          file "$ICON_SOURCE"
-          ls -lh "$ICON_SOURCE"
-
-          echo "Install ImageMagick..."
-
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-
-          RES_DIR="android/app/src/main/res"
-
           mkdir -p \
-            "$RES_DIR/mipmap-mdpi" \
-            "$RES_DIR/mipmap-hdpi" \
-            "$RES_DIR/mipmap-xhdpi" \
-            "$RES_DIR/mipmap-xxhdpi" \
-            "$RES_DIR/mipmap-xxxhdpi" \
-            "$RES_DIR/mipmap-anydpi-v26" \
-            "$RES_DIR/drawable" \
-            "$RES_DIR/values"
+            "$RES/mipmap-mdpi" \
+            "$RES/mipmap-hdpi" \
+            "$RES/mipmap-xhdpi" \
+            "$RES/mipmap-xxhdpi" \
+            "$RES/mipmap-xxxhdpi"
 
-          echo "Membuat icon Android..."
+          convert "$ICON" -resize 48x48 \
+            "$RES/mipmap-mdpi/ic_launcher.png"
 
-          convert "$ICON_SOURCE" \
-            -resize 48x48 \
-            "$RES_DIR/mipmap-mdpi/ic_launcher.png"
+          convert "$ICON" -resize 72x72 \
+            "$RES/mipmap-hdpi/ic_launcher.png"
 
-          convert "$ICON_SOURCE" \
-            -resize 72x72 \
-            "$RES_DIR/mipmap-hdpi/ic_launcher.png"
+          convert "$ICON" -resize 96x96 \
+            "$RES/mipmap-xhdpi/ic_launcher.png"
 
-          convert "$ICON_SOURCE" \
-            -resize 96x96 \
-            "$RES_DIR/mipmap-xhdpi/ic_launcher.png"
+          convert "$ICON" -resize 144x144 \
+            "$RES/mipmap-xxhdpi/ic_launcher.png"
 
-          convert "$ICON_SOURCE" \
-            -resize 144x144 \
-            "$RES_DIR/mipmap-xxhdpi/ic_launcher.png"
+          convert "$ICON" -resize 192x192 \
+            "$RES/mipmap-xxxhdpi/ic_launcher.png"
 
-          convert "$ICON_SOURCE" \
-            -resize 192x192 \
-            "$RES_DIR/mipmap-xxxhdpi/ic_launcher.png"
+          cp "$RES/mipmap-mdpi/ic_launcher.png" \
+             "$RES/mipmap-mdpi/ic_launcher_round.png"
 
-          cp "$RES_DIR/mipmap-mdpi/ic_launcher.png" \
-             "$RES_DIR/mipmap-mdpi/ic_launcher_round.png"
+          cp "$RES/mipmap-hdpi/ic_launcher.png" \
+             "$RES/mipmap-hdpi/ic_launcher_round.png"
 
-          cp "$RES_DIR/mipmap-hdpi/ic_launcher.png" \
-             "$RES_DIR/mipmap-hdpi/ic_launcher_round.png"
+          cp "$RES/mipmap-xhdpi/ic_launcher.png" \
+             "$RES/mipmap-xhdpi/ic_launcher_round.png"
 
-          cp "$RES_DIR/mipmap-xhdpi/ic_launcher.png" \
-             "$RES_DIR/mipmap-xhdpi/ic_launcher_round.png"
+          cp "$RES/mipmap-xxhdpi/ic_launcher.png" \
+             "$RES/mipmap-xxhdpi/ic_launcher_round.png"
 
-          cp "$RES_DIR/mipmap-xxhdpi/ic_launcher.png" \
-             "$RES_DIR/mipmap-xxhdpi/ic_launcher_round.png"
+          cp "$RES/mipmap-xxxhdpi/ic_launcher.png" \
+             "$RES/mipmap-xxxhdpi/ic_launcher_round.png"
 
-          cp "$RES_DIR/mipmap-xxxhdpi/ic_launcher.png" \
-             "$RES_DIR/mipmap-xxxhdpi/ic_launcher_round.png"
+          echo "Icon Android berhasil dibuat."
 
-          cp "$ICON_SOURCE" \
-             "$RES_DIR/drawable/catat_smart_icon_foreground.png"
-
-          cat > "$RES_DIR/values/catat_smart_icon_colors.xml" <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="catat_smart_icon_background">#1565C0</color>
-          </resources>
-          XML
-
-          cat > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/catat_smart_icon_background"/>
-              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
-          </adaptive-icon>
-          XML
-
-          cat > "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml" <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/catat_smart_icon_background"/>
-              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
-          </adaptive-icon>
-          XML
-
-          echo "===== ICON HASIL ====="
-
-          find "$RES_DIR" \
-            \( -name "ic_launcher.png" \
-            -o -name "ic_launcher_round.png" \
-            -o -name "ic_launcher.xml" \
-            -o -name "ic_launcher_round.xml" \
-            -o -name "catat_smart_icon_foreground.png" \) \
-            -print
-
-          echo "CATAT SMART Android icon berhasil diterapkan."
-
-
-      # ==========================================================
-      # MANIFEST ICON
-      # ==========================================================
-      - name: Fix Android launcher manifest icon
+      - name: Fix MainActivity
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("android/app/src/main/AndroidManifest.xml")
-
-          if not p.exists():
-              raise SystemExit(
-                  "ERROR: AndroidManifest.xml tidak ditemukan."
-              )
-
-          s = p.read_text()
-
-          if 'android:icon=' not in s:
-              raise SystemExit(
-                  "ERROR: android:icon tidak ditemukan di manifest."
-              )
-
-          if 'android:roundIcon=' not in s:
-              s = s.replace(
-                  'android:icon="@mipmap/ic_launcher"',
-                  'android:icon="@mipmap/ic_launcher" '
-                  'android:roundIcon="@mipmap/ic_launcher_round"',
-                  1
-              )
-
-          p.write_text(s)
-
-          print("Android launcher icon configuration verified.")
-          PY
-
-          echo "===== AndroidManifest.xml ====="
-          cat android/app/src/main/AndroidManifest.xml
-
-
-      # ==========================================================
-      # MAIN ACTIVITY + NATIVE FILE
-      # ==========================================================
-      - name: Fix MainActivity and install NativeFile plugin
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: |
-          mkdir -p \
-            android/app/src/main/java/com/nawmanusia/catatsmart
+          mkdir -p android/app/src/main/java/com/nawmanusia/catatsmart
 
           cp \
             native-plugins/NativeFilePlugin.java \
@@ -430,26 +244,11 @@ jobs:
           s = p.read_text()
 
           if "import android.os.Bundle;" not in s:
-              marker = "import android.app.Activity;"
-
-              if marker in s:
-                  s = s.replace(
-                      marker,
-                      marker + "\nimport android.os.Bundle;",
-                      1
-                  )
-              else:
-                  package_line = "package com.nawmanusia.catatsmart;"
-
-                  if package_line in s:
-                      s = s.replace(
-                          package_line,
-                          package_line +
-                          "\n\nimport android.os.Bundle;",
-                          1
-                      )
-                  else:
-                      s = "import android.os.Bundle;\n" + s
+              s = s.replace(
+                  "import android.app.Activity;",
+                  "import android.app.Activity;\nimport android.os.Bundle;",
+                  1
+              )
 
           if "registerPlugin(NativeFilePlugin.class)" not in s:
               target = "public class MainActivity extends BridgeActivity {"
@@ -462,29 +261,15 @@ jobs:
                   super.onCreate(savedInstanceState);
               }"""
 
-              if target in s:
-                  s = s.replace(
-                      target,
-                      replacement,
-                      1
-                  )
-              else:
-                  raise SystemExit(
-                      "ERROR: Struktur MainActivity.java "
-                      "tidak sesuai."
-                  )
+              if target not in s:
+                  raise SystemExit("Struktur MainActivity tidak sesuai.")
+
+              s = s.replace(target, replacement, 1)
 
           p.write_text(s)
-
-          print("===== MainActivity.java =====")
-          print(s)
           PY
 
-
-      # ==========================================================
-      # KOTLIN COMPATIBILITY
-      # ==========================================================
-      - name: Fix Kotlin dependency resolution
+      - name: Fix Kotlin dependency
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           python3 - <<'PY'
@@ -493,7 +278,8 @@ jobs:
           p = Path("android/build.gradle")
           s = p.read_text()
 
-          fix = r'''
+          if "CATAT SMART dependency compatibility fix" not in s:
+              s += """
 
           // CATAT SMART dependency compatibility fix
           allprojects {
@@ -502,25 +288,15 @@ jobs:
                       if (details.requested.group == "org.jetbrains.kotlin" &&
                           details.requested.name == "kotlin-stdlib-jdk8") {
                           details.useVersion("1.9.24")
-                          details.because("Use available Kotlin stdlib version")
                       }
                   }
               }
           }
-          '''
-
-          if "CATAT SMART dependency compatibility fix" not in s:
-              s += fix
+          """
 
           p.write_text(s)
-
-          print("Kotlin dependency resolution fix applied.")
           PY
 
-
-      # ==========================================================
-      # VERSION + SIGNING
-      # ==========================================================
       - name: Configure version and signing
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -544,32 +320,22 @@ jobs:
           version_code = os.environ["VERSION_CODE"]
           version_name = os.environ["VERSION"]
 
-          if re.search(r'versionCode\s+\d+', s):
-              s = re.sub(
-                  r'versionCode\s+\d+',
-                  f'versionCode {version_code}',
-                  s,
-                  count=1
-              )
-          else:
-              raise SystemExit(
-                  "ERROR: versionCode tidak ditemukan."
-              )
+          s = re.sub(
+              r'versionCode\s+\d+',
+              f'versionCode {version_code}',
+              s,
+              count=1
+          )
 
-          if re.search(r'versionName\s+["\'][^"\']+["\']', s):
-              s = re.sub(
-                  r'versionName\s+["\'][^"\']+["\']',
-                  f'versionName "{version_name}"',
-                  s,
-                  count=1
-              )
-          else:
-              raise SystemExit(
-                  "ERROR: versionName tidak ditemukan."
-              )
+          s = re.sub(
+              r'versionName\s+["\'][^"\']+["\']',
+              f'versionName "{version_name}"',
+              s,
+              count=1
+          )
 
           if "CATAT_SMART_RELEASE_SIGNING" not in s:
-              signing = r'''
+              signing = """
 
               // CATAT_SMART_RELEASE_SIGNING
               signingConfigs {
@@ -580,7 +346,7 @@ jobs:
                       keyPassword "CatatSmartV3!2026"
                   }
               }
-              '''
+              """
 
               s = s.replace(
                   "android {",
@@ -589,51 +355,28 @@ jobs:
               )
 
           if "signingConfig signingConfigs.release" not in s:
-              build_types = """buildTypes {
+              s = s.replace(
+                  "buildTypes {",
+                  """buildTypes {
                   release {
                       signingConfig signingConfigs.release
                       minifyEnabled false
-                  }"""
-
-              s = s.replace(
-                  "buildTypes {",
-                  build_types,
+                  }""",
                   1
               )
 
           p.write_text(s)
-
-          print("Version configured:")
-          print("versionName =", version_name)
-          print("versionCode =", version_code)
           PY
 
-          echo "===== app/build.gradle ====="
-          cat android/app/build.gradle
-
-
-      # ==========================================================
-      # VERIFY APPLICATION ID
-      # ==========================================================
       - name: Verify application ID
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          if ! grep -q \
+          grep -q \
             'applicationId "com.nawmanusia.catatsmart"' \
-            android/app/build.gradle; then
-
-            echo "ERROR: applicationId berubah."
-            echo "CATAT SMART wajib menggunakan:"
-            echo "com.nawmanusia.catatsmart"
-            exit 1
-          fi
+            android/app/build.gradle
 
           echo "applicationId OK."
 
-
-      # ==========================================================
-      # VERIFY SIGNING
-      # ==========================================================
       - name: Verify signing key
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -642,8 +385,43 @@ jobs:
             -storepass 'CatatSmartV3!2026' \
             -alias catat-smart
 
+      - name: Build release APK
+        working-directory: ${{ env.PROJECT_ROOT }}/android
+        run: |
+          gradle assembleRelease \
+            --no-daemon \
+            --refresh-dependencies \
+            --stacktrace
 
-      # ==========================================================
-      # BUILD RELEASE
-      # ==========================================================
-      - 
+      - name: Prepare APK
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          APK=$(find android/app/build/outputs/apk/release \
+            -type f \
+            -name "*.apk" \
+            | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan."
+            exit 1
+          fi
+
+          cp "$APK" \
+            "${GITHUB_WORKSPACE}/CATAT-SMART-${VERSION}.apk"
+
+          ls -lh "${GITHUB_WORKSPACE}/CATAT-SMART-${VERSION}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CATAT-SMART-${{ env.VERSION }}
+          path: CATAT-SMART-${{ env.VERSION }}.apk
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: CATAT SMART ${{ env.VERSION }}
+          generate_release_notes: true
+          files: CATAT-SMART-${{ env.VERSION }}.apk
