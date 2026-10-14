@@ -105,55 +105,43 @@ jobs:
       # VERSION
       # =========================================================
       - name: Determine next version
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
 
-          LAST_TAG=$(gh release list \
-            --repo "${{ github.repository }}" \
-            --limit 100 \
-            --json tagName,isDraft,isPrerelease \
-            --jq '.[] |
-              select(.isDraft == false) |
-              select(.isPrerelease == false) |
-              .tagName' \
-            | grep -E '^v3\.[0-9]+\.[0-9]+$' \
-            | sort -V \
-            | tail -n 1 || true)
+          LAST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
 
-          if [ -z "$LAST_TAG" ]; then
-            LAST_TAG="v3.0.0"
+          echo "Last release: ${LAST_TAG:-none}"
+
+          if [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+          else
+            MAJOR=3
+            MINOR=0
+            PATCH=0
           fi
-
-          VERSION="${LAST_TAG#v}"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
 
           PATCH=$((PATCH + 1))
 
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          NEW_TAG="v${NEW_VERSION}"
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
 
-          VERSION_CODE=$(
-            (
-              MAJOR * 1000000
-            ) + (
-              MINOR * 1000
-            ) + PATCH
-          )
+          # Android versionCode:
+          # 3.0.1 -> 3000001
+          # 3.0.2 -> 3000002
+          # 3.0.3 -> 3000003
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
 
-          echo "VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
-          echo "TAG=$NEW_TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
-          echo "================================"
-          echo "CATAT SMART VERSION"
-          echo "Version     : $NEW_VERSION"
-          echo "Tag         : $NEW_TAG"
-          echo "VersionCode : $VERSION_CODE"
-          echo "================================"
+          echo "========================================"
+          echo "Next version : $VERSION"
+          echo "Version code : $VERSION_CODE"
+          echo "========================================"
 
       # =========================================================
       # NODE
