@@ -24,26 +24,35 @@ jobs:
       - name: Find CATAT SMART ZIP
         id: find_zip
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "CATAT-SMART-V3-NAWSTYLE.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f \
+            -iname "CATAT-SMART-V3-NAWSTYLE.zip" \
+            | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: CATAT-SMART-V3-NAWSTYLE.zip tidak ditemukan di root repository."
+            echo "ERROR: CATAT-SMART-V3-NAWSTYLE.zip tidak ditemukan."
             exit 1
           fi
 
-          echo "ZIP: $ZIP_FILE"
+          echo "ZIP ditemukan: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Extract CATAT SMART source
+      - name: Extract CATAT SMART
         run: |
           rm -rf build-project
-          mkdir build-project
-          unzip -q -o "${{ steps.find_zip.outputs.zip_file }}" -d build-project
+          mkdir -p build-project
 
-      - name: Detect React project
+          unzip -q -o \
+            "${{ steps.find_zip.outputs.zip_file }}" \
+            -d build-project
+
+      - name: Detect project root
         id: detect_project
         run: |
-          PACKAGE=$(find build-project -maxdepth 5 -type f -name "package.json" | head -n 1)
+          PACKAGE=$(find build-project \
+            -maxdepth 5 \
+            -type f \
+            -name "package.json" \
+            | head -n 1)
 
           if [ -z "$PACKAGE" ]; then
             echo "ERROR: package.json tidak ditemukan."
@@ -51,9 +60,11 @@ jobs:
           fi
 
           PROJECT_ROOT=$(dirname "$PACKAGE")
+
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
-          echo "Project: $PROJECT_ROOT"
+
+          echo "Project root: $PROJECT_ROOT"
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
@@ -66,34 +77,43 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Setup Android SDK manually
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Setup Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
           SDKMANAGER=$(find /usr/local/lib/android/sdk/cmdline-tools \
-            -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)
+            -type f \
+            -name sdkmanager \
+            2>/dev/null \
+            | sort \
+            | tail -n 1)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERROR: sdkmanager tidak ditemukan."
             exit 1
           fi
 
-          echo "SDKMANAGER=$SDKMANAGER"
+          echo "sdkmanager: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-          yes | "$SDKMANAGER" \
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Install dependencies
+      - name: Install npm dependencies
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           npm install --no-audit --no-fund
 
-      - name: Force Capacitor JSON configuration
+      - name: Create Capacitor JSON configuration
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           rm -f capacitor.config.ts
@@ -110,6 +130,8 @@ jobs:
           }
           JSON
 
+          cat capacitor.config.json
+
       - name: Build React application
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -125,19 +147,58 @@ jobs:
         run: |
           npx cap sync android
 
+      - name: Fix Kotlin dependency resolution
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/build.gradle")
+          s = p.read_text()
+
+          fix = r'''
+
+          // CATAT SMART dependency compatibility fix
+          allprojects {
+              configurations.configureEach {
+                  resolutionStrategy.eachDependency { details ->
+                      if (details.requested.group == "org.jetbrains.kotlin" &&
+                          details.requested.name == "kotlin-stdlib-jdk8") {
+                          details.useVersion("1.9.24")
+                          details.because("Use available Kotlin stdlib version")
+                      }
+                  }
+              }
+          }
+          '''
+
+          if "CATAT SMART dependency compatibility fix" not in s:
+              s += fix
+
+          p.write_text(s)
+
+          print("Kotlin dependency resolution fix applied.")
+          PY
+
+          echo "===== android/build.gradle ====="
+          cat android/build.gradle
+
       - name: Install NativeFile plugin
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          mkdir -p android/app/src/main/java/com/nawmanusia/catatsmart
+          mkdir -p \
+            android/app/src/main/java/com/nawmanusia/catatsmart
 
-          cp native-plugins/NativeFilePlugin.java \
+          cp \
+            native-plugins/NativeFilePlugin.java \
             android/app/src/main/java/com/nawmanusia/catatsmart/NativeFilePlugin.java
 
           python3 - <<'PY'
           from pathlib import Path
 
           p = Path(
-              "android/app/src/main/java/com/nawmanusia/catatsmart/MainActivity.java"
+              "android/app/src/main/java/"
+              "com/nawmanusia/catatsmart/MainActivity.java"
           )
 
           s = p.read_text()
@@ -146,6 +207,7 @@ jobs:
               s = s.replace(
                   "public class MainActivity extends BridgeActivity {",
                   """public class MainActivity extends BridgeActivity {
+
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   registerPlugin(NativeFilePlugin.class);
@@ -156,10 +218,16 @@ jobs:
           p.write_text(s)
           PY
 
-      - name: Configure permanent signing and version
+      - name: Configure version and signing
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          cp catat-smart-release.keystore \
+          if [ ! -f "catat-smart-release.keystore" ]; then
+            echo "ERROR: catat-smart-release.keystore tidak ditemukan."
+            exit 1
+          fi
+
+          cp \
+            catat-smart-release.keystore \
             android/catat-smart-release.keystore
 
           python3 - <<'PY'
@@ -169,6 +237,7 @@ jobs:
           p = Path("android/app/build.gradle")
           s = p.read_text()
 
+          # Version
           s = re.sub(
               r'versionCode\s+\d+',
               'versionCode 3000001',
@@ -183,10 +252,11 @@ jobs:
               count=1
           )
 
-          if "signingConfigs {" not in s:
-              s = s.replace(
-                  "android {",
-                  """android {
+          # Release signing
+          if "CATAT_SMART_RELEASE_SIGNING" not in s:
+              signing = r'''
+
+              // CATAT_SMART_RELEASE_SIGNING
               signingConfigs {
                   release {
                       storeFile file("../catat-smart-release.keystore")
@@ -194,7 +264,12 @@ jobs:
                       keyAlias "catat-smart"
                       keyPassword "CatatSmartV3!2026"
                   }
-              }""",
+              }
+              '''
+
+              s = s.replace(
+                  "android {",
+                  "android {" + signing,
                   1
               )
 
@@ -202,22 +277,36 @@ jobs:
               s = s.replace(
                   "buildTypes {",
                   """buildTypes {
-              release {
-                  signingConfig signingConfigs.release
-                  minifyEnabled false
-              }""",
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                  }""",
                   1
               )
 
           p.write_text(s)
           PY
 
+          echo "===== app/build.gradle ====="
+          cat android/app/build.gradle
+
+      - name: Verify signing key
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          keytool -list \
+            -keystore android/catat-smart-release.keystore \
+            -storepass 'CatatSmartV3!2026' \
+            -alias catat-smart
+
       - name: Build signed release APK
         working-directory: ${{ env.PROJECT_ROOT }}/android
         run: |
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          gradle assembleRelease \
+            --no-daemon \
+            --refresh-dependencies \
+            --stacktrace
 
-      - name: Prepare APK
+      - name: Find release APK
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           APK=$(find android/app/build/outputs/apk/release \
@@ -230,11 +319,20 @@ jobs:
             exit 1
           fi
 
+          echo "APK ditemukan:"
+          ls -lh "$APK"
+
           cp "$APK" \
             "${GITHUB_WORKSPACE}/CATAT-SMART-v3.0.1.apk"
 
-          ls -lh \
-            "${GITHUB_WORKSPACE}/CATAT-SMART-v3.0.1.apk"
+      - name: Verify APK
+        run: |
+          if [ ! -f "CATAT-SMART-v3.0.1.apk" ]; then
+            echo "ERROR: APK tidak berhasil disiapkan."
+            exit 1
+          fi
+
+          ls -lh CATAT-SMART-v3.0.1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
