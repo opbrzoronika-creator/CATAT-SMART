@@ -197,6 +197,187 @@ jobs:
         run: |
           npx cap sync android
 
+      # ==========================================================
+      # CATAT SMART ICON
+      # ==========================================================
+      - name: Apply CATAT SMART Android icon
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          set -e
+
+          ICON_SOURCE="public/icon-512.png"
+
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "ERROR: $ICON_SOURCE tidak ditemukan."
+            echo "Masukkan logo CATAT SMART baru sebagai:"
+            echo "public/icon-512.png"
+            exit 1
+          fi
+
+          echo "Logo sumber ditemukan:"
+          file "$ICON_SOURCE"
+          ls -lh "$ICON_SOURCE"
+
+          RES_DIR="android/app/src/main/res"
+
+          mkdir -p \
+            "$RES_DIR/mipmap-mdpi" \
+            "$RES_DIR/mipmap-hdpi" \
+            "$RES_DIR/mipmap-xhdpi" \
+            "$RES_DIR/mipmap-xxhdpi" \
+            "$RES_DIR/mipmap-xxxhdpi"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          source = Path("public/icon-512.png")
+          res = Path("android/app/src/main/res")
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          try:
+              from PIL import Image
+          except ImportError:
+              subprocess.check_call([
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "install",
+                  "Pillow",
+                  "--quiet"
+              ])
+              from PIL import Image
+
+          image = Image.open(source).convert("RGBA")
+
+          print("Original icon:", image.size)
+
+          for folder, size in sizes.items():
+              out_dir = res / folder
+              out_dir.mkdir(parents=True, exist_ok=True)
+
+              resized = image.resize(
+                  (size, size),
+                  Image.Resampling.LANCZOS
+              )
+
+              resized.save(
+                  out_dir / "ic_launcher.png",
+                  "PNG"
+              )
+
+              resized.save(
+                  out_dir / "ic_launcher_round.png",
+                  "PNG"
+              )
+
+              print(folder, "->", size, "x", size)
+
+          # Adaptive icon XML.
+          anydpi = res / "mipmap-anydpi-v26"
+          anydpi.mkdir(parents=True, exist_ok=True)
+
+          (anydpi / "ic_launcher.xml").write_text(
+              '''<?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/catat_smart_icon_background"/>
+              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
+          </adaptive-icon>
+          '''
+          )
+
+          (anydpi / "ic_launcher_round.xml").write_text(
+              '''<?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/catat_smart_icon_background"/>
+              <foreground android:drawable="@drawable/catat_smart_icon_foreground"/>
+          </adaptive-icon>
+          '''
+          )
+
+          colors = res / "values"
+          colors.mkdir(parents=True, exist_ok=True)
+
+          (colors / "catat_smart_icon_colors.xml").write_text(
+              '''<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="catat_smart_icon_background">#1565C0</color>
+          </resources>
+          '''
+          )
+
+          drawable = res / "drawable"
+          drawable.mkdir(parents=True, exist_ok=True)
+
+          # Use the full logo as adaptive foreground.
+          # The bitmap is copied so Android always receives
+          # the same CATAT SMART visual identity.
+          import shutil
+
+          shutil.copyfile(
+              source,
+              drawable / "catat_smart_icon_foreground.png"
+          )
+
+          print("CATAT SMART Android icon applied successfully.")
+          PY
+
+          echo "===== ICON FILES ====="
+          find android/app/src/main/res \
+            \( -name "ic_launcher.png" \
+               -o -name "ic_launcher_round.png" \
+               -o -name "ic_launcher.xml" \
+               -o -name "ic_launcher_round.xml" \
+               -o -name "catat_smart_icon_foreground.png" \) \
+            -print
+
+      - name: Fix Android launcher manifest icon
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/app/src/main/AndroidManifest.xml")
+
+          if not p.exists():
+              raise SystemExit(
+                  "ERROR: AndroidManifest.xml tidak ditemukan."
+              )
+
+          s = p.read_text()
+
+          s = s.replace(
+              'android:icon="@mipmap/ic_launcher"',
+              'android:icon="@mipmap/ic_launcher"'
+          )
+
+          if 'android:roundIcon=' not in s:
+              s = s.replace(
+                  'android:icon="@mipmap/ic_launcher"',
+                  'android:icon="@mipmap/ic_launcher" '
+                  'android:roundIcon="@mipmap/ic_launcher_round"',
+                  1
+              )
+
+          p.write_text(s)
+
+          print("Android launcher icon configuration verified.")
+          PY
+
+          echo "===== AndroidManifest.xml ====="
+          cat android/app/src/main/AndroidManifest.xml
+
+      # ==========================================================
+      # MAIN ACTIVITY + NATIVE FILE PLUGIN
+      # ==========================================================
       - name: Fix MainActivity and install NativeFile plugin
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -217,7 +398,6 @@ jobs:
 
           s = p.read_text()
 
-          # Pastikan Bundle selalu di-import.
           if "import android.os.Bundle;" not in s:
               marker = "import android.app.Activity;"
 
@@ -240,7 +420,6 @@ jobs:
                   else:
                       s = "import android.os.Bundle;\n" + s
 
-          # Register NativeFilePlugin.
           if "registerPlugin(NativeFilePlugin.class)" not in s:
               target = "public class MainActivity extends BridgeActivity {"
 
@@ -270,6 +449,9 @@ jobs:
           print(s)
           PY
 
+      # ==========================================================
+      # KOTLIN COMPATIBILITY
+      # ==========================================================
       - name: Fix Kotlin dependency resolution
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -303,6 +485,9 @@ jobs:
           print("Kotlin dependency resolution fix applied.")
           PY
 
+      # ==========================================================
+      # VERSION + SIGNING
+      # ==========================================================
       - name: Configure version and signing
         working-directory: ${{ env.PROJECT_ROOT }}
         run: |
@@ -326,7 +511,6 @@ jobs:
           version_code = os.environ["VERSION_CODE"]
           version_name = os.environ["VERSION"]
 
-          # Update versionCode.
           if re.search(r'versionCode\s+\d+', s):
               s = re.sub(
                   r'versionCode\s+\d+',
@@ -339,7 +523,6 @@ jobs:
                   "ERROR: versionCode tidak ditemukan."
               )
 
-          # Update versionName.
           if re.search(r'versionName\s+["\'][^"\']+["\']', s):
               s = re.sub(
                   r'versionName\s+["\'][^"\']+["\']',
@@ -352,7 +535,6 @@ jobs:
                   "ERROR: versionName tidak ditemukan."
               )
 
-          # Release signing.
           if "CATAT_SMART_RELEASE_SIGNING" not in s:
               signing = r'''
 
@@ -419,6 +601,9 @@ jobs:
             -storepass 'CatatSmartV3!2026' \
             -alias catat-smart
 
+      # ==========================================================
+      # BUILD
+      # ==========================================================
       - name: Build signed release APK
         working-directory: ${{ env.PROJECT_ROOT }}/android
         run: |
@@ -457,6 +642,9 @@ jobs:
 
           ls -lh "$APK"
 
+      # ==========================================================
+      # ARTIFACT + RELEASE
+      # ==========================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
